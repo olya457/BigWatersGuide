@@ -10,6 +10,7 @@ import FloatingDock from './FloatingDock';
 import PlaceViewScreen from '../screens/PlaceView/PlaceViewScreen';
 import DriftArticleScreen from '../screens/DriftLibrary/DriftArticleScreen';
 import EchoVoyageNavigator from './EchoVoyageNavigator';
+import HorizonChartScreen from '../screens/HorizonChart/HorizonChartScreen';
 
 export type RootStackParamList = {
   LaunchRiver: {firstLaunch: boolean} | undefined;
@@ -27,6 +28,8 @@ export type RootStackParamList = {
   };
 
   KnowledgeChallenge: undefined;
+
+  HorizonChart: undefined;
 };
 
 const Stack =
@@ -72,6 +75,11 @@ export default function RootStack({firstLaunch}: Props) {
       <Stack.Screen
         name="KnowledgeChallenge"
         component={EchoVoyageNavigator}
+      />
+
+      <Stack.Screen
+        name="HorizonChart"
+        component={HorizonChartScreen}
       />
     </Stack.Navigator>
   );

@@ -1,6 +1,6 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
-  DimensionValue,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -8,8 +8,10 @@ import {
   View,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
+import MapView, {Marker, PROVIDER_GOOGLE} from 'react-native-maps';
 
 import fishingLocations from '../../database/fishingLocations';
+import {RiverLocation} from '../../types/location';
 import PlacePreview from './widgets/PlacePreview';
 
 const CATS: Record<string, {color: string; emoji: string}> = {
@@ -25,39 +27,76 @@ const FILTERS = [
   {id: 'hidden', label: 'Hidden', emoji: '💎'},
 ];
 
-const lats = fishingLocations.map(l => l.latitude);
-const lngs = fishingLocations.map(l => l.longitude);
-const minLat = Math.min(...lats);
-const maxLat = Math.max(...lats);
-const minLng = Math.min(...lngs);
-const maxLng = Math.max(...lngs);
+const INITIAL_REGION = {
+  latitude: 46.497,
+  longitude: 30.762,
+  latitudeDelta: 0.12,
+  longitudeDelta: 0.14,
+};
 
-function posFor(place: any) {
-  const left = 8 + ((place.longitude - minLng) / (maxLng - minLng)) * 78;
-  const top = 24 + ((maxLat - place.latitude) / (maxLat - minLat)) * 58;
-
-  return {
-    left: `${left}%` as DimensionValue,
-    top: `${top}%` as DimensionValue,
-  };
-}
+const DARK_MAP_STYLE = [
+  {elementType: 'geometry', stylers: [{color: '#18394a'}]},
+  {elementType: 'labels.text.fill', stylers: [{color: '#b9cbd1'}]},
+  {elementType: 'labels.text.stroke', stylers: [{color: '#142f3d'}]},
+  {featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{color: '#41606b'}]},
+  {featureType: 'landscape', elementType: 'geometry', stylers: [{color: '#254c40'}]},
+  {featureType: 'poi', elementType: 'geometry', stylers: [{color: '#285342'}]},
+  {featureType: 'poi', elementType: 'labels.text.fill', stylers: [{color: '#9ec2a7'}]},
+  {featureType: 'road', elementType: 'geometry', stylers: [{color: '#385765'}]},
+  {featureType: 'road', elementType: 'geometry.stroke', stylers: [{color: '#1d3b47'}]},
+  {featureType: 'road', elementType: 'labels.text.fill', stylers: [{color: '#c5d3d7'}]},
+  {featureType: 'transit', elementType: 'geometry', stylers: [{color: '#315260'}]},
+  {featureType: 'water', elementType: 'geometry', stylers: [{color: '#0b294a'}]},
+  {featureType: 'water', elementType: 'labels.text.fill', stylers: [{color: '#7fa8bc'}]},
+];
 
 export default function HorizonChartScreen() {
   const navigation = useNavigation<any>();
-
+  const mapRef = useRef<MapView>(null);
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('all');
-  const [selected, setSelected] = useState<any>(null);
+  const [selected, setSelected] = useState<RiverLocation | null>(null);
 
   const visible = useMemo(
     () =>
       fishingLocations.filter(
-        l =>
-          (cat === 'all' || l.category === cat) &&
-          l.title.toLowerCase().includes(query.trim().toLowerCase()),
+        location =>
+          (cat === 'all' || location.category === cat) &&
+          location.title.toLowerCase().includes(query.trim().toLowerCase()),
       ),
     [query, cat],
   );
+
+  useEffect(() => {
+    if (!visible.length) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (visible.length === 1) {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: visible[0].latitude,
+            longitude: visible[0].longitude,
+            latitudeDelta: 0.025,
+            longitudeDelta: 0.025,
+          },
+          400,
+        );
+        return;
+      }
+
+      mapRef.current?.fitToCoordinates(
+        visible.map(({latitude, longitude}) => ({latitude, longitude})),
+        {
+          animated: true,
+          edgePadding: {top: 170, right: 50, bottom: 180, left: 50},
+        },
+      );
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [visible]);
 
   const showAll = () => {
     setCat('all');
@@ -67,44 +106,68 @@ export default function HorizonChartScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.land} />
-      <View style={styles.water} />
-      <View style={styles.lake} />
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        initialRegion={INITIAL_REGION}
+        customMapStyle={DARK_MAP_STYLE}
+        showsCompass
+        showsScale
+        rotateEnabled
+        pitchEnabled
+        toolbarEnabled={false}
+        onPress={() => setSelected(null)}>
+        {visible.map(place => {
+          const meta = CATS[place.category] ?? CATS.spots;
+          const active = selected?.id === place.id;
 
-      {visible.map(place => {
-        const meta = CATS[place.category] ?? CATS.spots;
-        const active = selected?.id === place.id;
+          return (
+            <Marker
+              key={place.id}
+              coordinate={{
+                latitude: place.latitude,
+                longitude: place.longitude,
+              }}
+              title={place.title}
+              description={`${place.rating} ★ · ${place.distance}`}
+              tracksViewChanges={active}
+              onPress={event => {
+                event.stopPropagation();
+                setSelected(place);
+              }}>
+              <View
+                style={[
+                  styles.pin,
+                  {backgroundColor: meta.color},
+                  active && styles.pinActive,
+                ]}>
+                <Text style={styles.pinEmoji}>{meta.emoji}</Text>
+              </View>
+              <View style={[styles.pinTip, {borderTopColor: meta.color}]} />
+            </Marker>
+          );
+        })}
+      </MapView>
 
-        return (
-          <TouchableOpacity
-            key={place.id}
-            activeOpacity={0.9}
-            onPress={() => setSelected(place)}
-            style={[
-              styles.pin,
-              posFor(place),
-              {
-                backgroundColor: meta.color,
-                borderColor: active ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
-                transform: [{scale: active ? 1.15 : 1}],
-              },
-            ]}>
-            <Text style={styles.pinEmoji}>{meta.emoji}</Text>
-          </TouchableOpacity>
-        );
-      })}
-
-      <View style={styles.top}>
+      <View style={styles.top} pointerEvents="box-none">
         <View style={styles.searchRow}>
+          <TouchableOpacity
+            accessibilityLabel="Back"
+            style={styles.back}
+            activeOpacity={0.85}
+            onPress={() => navigation.goBack()}>
+            <Text style={styles.backText}>‹</Text>
+          </TouchableOpacity>
+
           <View style={styles.search}>
             <Text style={styles.searchIcon}>🔍</Text>
-
             <TextInput
               style={styles.input}
               value={query}
               onChangeText={setQuery}
               placeholder="Search locations..."
-              placeholderTextColor="#7C8AA6"
+              placeholderTextColor="#9BAAC3"
             />
           </View>
 
@@ -112,40 +175,47 @@ export default function HorizonChartScreen() {
             style={styles.showAll}
             activeOpacity={0.85}
             onPress={showAll}>
-            <Text style={styles.showAllText}>Show All</Text>
+            <Text style={styles.showAllText}>All</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.filterRow}>
-          {FILTERS.map(f => {
-            const on = cat === f.id;
+          {FILTERS.map(filter => {
+            const on = cat === filter.id;
 
             return (
               <TouchableOpacity
-                key={f.id}
+                key={filter.id}
                 activeOpacity={0.85}
-                onPress={() => setCat(f.id)}
+                onPress={() => {
+                  setCat(filter.id);
+                  setSelected(null);
+                }}
                 style={[styles.pill, on && styles.pillOn]}>
-                <Text style={styles.pillEmoji}>{f.emoji}</Text>
-
-                <Text
-                  style={[styles.pillText, on && styles.pillTextOn]}>
-                  {f.label}
+                <Text style={styles.pillEmoji}>{filter.emoji}</Text>
+                <Text style={[styles.pillText, on && styles.pillTextOn]}>
+                  {filter.label}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </View>
-
       </View>
+
+      {!visible.length && (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>No places found</Text>
+          <TouchableOpacity onPress={showAll}>
+            <Text style={styles.emptyAction}>Clear search</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {selected && (
         <PlacePreview
           place={selected}
           onClose={() => setSelected(null)}
-          onPress={() =>
-            navigation.navigate('PlaceView', {place: selected})
-          }
+          onPress={() => navigation.navigate('PlaceView', {place: selected})}
         />
       )}
     </View>
@@ -153,144 +223,90 @@ export default function HorizonChartScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A2530',
-    overflow: 'hidden',
-  },
-
-  land: {
-    position: 'absolute',
-    top: -60,
-    left: -60,
-    right: -60,
-    height: '66%',
-    backgroundColor: '#1E4032',
-    borderBottomLeftRadius: 260,
-    borderBottomRightRadius: 200,
-  },
-
-  water: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '44%',
-    backgroundColor: '#0C2A4A',
-    borderTopLeftRadius: 180,
-    borderTopRightRadius: 120,
-  },
-
-  lake: {
-    position: 'absolute',
-    left: 40,
-    right: 120,
-    bottom: 150,
-    height: 90,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 60,
-  },
-
-  pin: {
-    position: 'absolute',
+  container: {flex: 1, backgroundColor: '#0A2530', overflow: 'hidden'},
+  top: {paddingTop: Platform.OS === 'ios' ? 58 : 30, paddingHorizontal: 14},
+  searchRow: {flexDirection: 'row', alignItems: 'center'},
+  back: {
     width: 46,
-    height: 46,
-    marginLeft: -23,
-    marginTop: -23,
-    borderRadius: 23,
-    borderWidth: 2,
+    height: 48,
+    marginRight: 8,
+    borderRadius: 24,
+    backgroundColor: 'rgba(7,27,63,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: {width: 0, height: 4},
-    elevation: 6,
   },
-
-  pinEmoji: {
-    fontSize: 20,
-  },
-
-  top: {
-    paddingTop: 58,
-    paddingHorizontal: 16,
-  },
-
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
+  backText: {marginTop: -4, color: '#FFFFFF', fontSize: 38, fontWeight: '300'},
   search: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(7,27,63,0.72)',
-    paddingHorizontal: 16,
+    backgroundColor: 'rgba(7,27,63,0.9)',
+    paddingHorizontal: 15,
   },
-
-  searchIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
-
-  input: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 15,
-    padding: 0,
-  },
-
+  searchIcon: {fontSize: 16, marginRight: 8},
+  input: {flex: 1, color: '#FFFFFF', fontSize: 15, padding: 0},
   showAll: {
-    marginLeft: 10,
+    marginLeft: 8,
+    width: 48,
     height: 48,
-    paddingHorizontal: 18,
     borderRadius: 24,
-    backgroundColor: 'rgba(7,27,63,0.72)',
+    backgroundColor: 'rgba(7,27,63,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  showAllText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  filterRow: {
-    flexDirection: 'row',
-    marginTop: 12,
-  },
-
+  showAllText: {color: '#FFFFFF', fontSize: 14, fontWeight: '800'},
+  filterRow: {flexDirection: 'row', marginTop: 12},
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 36,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 18,
-    marginRight: 8,
-    backgroundColor: 'rgba(7,27,63,0.72)',
+    marginRight: 7,
+    backgroundColor: 'rgba(7,27,63,0.9)',
   },
-
-  pillOn: {
-    backgroundColor: '#FF7A1A',
+  pillOn: {backgroundColor: '#FF7A1A'},
+  pillEmoji: {fontSize: 13, marginRight: 5},
+  pillText: {color: '#C7D6F0', fontSize: 12, fontWeight: '700'},
+  pillTextOn: {color: '#FFFFFF'},
+  pin: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.4,
+    shadowRadius: 7,
+    shadowOffset: {width: 0, height: 4},
+    elevation: 7,
   },
-
-  pillEmoji: {
-    fontSize: 14,
-    marginRight: 6,
+  pinActive: {width: 50, height: 50, borderRadius: 25},
+  pinEmoji: {fontSize: 19},
+  pinTip: {
+    alignSelf: 'center',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
   },
-
-  pillText: {
-    color: '#C7D6F0',
-    fontSize: 13,
-    fontWeight: '700',
+  empty: {
+    position: 'absolute',
+    top: '43%',
+    alignSelf: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 18,
+    backgroundColor: 'rgba(7,27,63,0.94)',
+    alignItems: 'center',
   },
-
-  pillTextOn: {
-    color: '#FFFFFF',
-  },
+  emptyTitle: {color: '#FFFFFF', fontSize: 16, fontWeight: '800'},
+  emptyAction: {marginTop: 7, color: '#7FB0FF', fontSize: 14, fontWeight: '700'},
 });

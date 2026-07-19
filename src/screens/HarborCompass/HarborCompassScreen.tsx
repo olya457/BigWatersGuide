@@ -74,6 +74,14 @@ export default function HarborCompassScreen() {
 
         <View style={styles.headerRow}>
           <Text style={styles.title}>Read the water{'\n'}before you go.</Text>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.mapButton}
+            onPress={() => navigation.navigate('HorizonChart')}>
+            <Text style={styles.mapButtonIcon}>⌖</Text>
+            <Text style={styles.mapButtonText}>Map</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.search}>
@@ -180,6 +188,31 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
     lineHeight: 38,
+  },
+
+  mapButton: {
+    minWidth: 72,
+    height: 48,
+    marginTop: 3,
+    paddingHorizontal: 13,
+    borderRadius: 18,
+    backgroundColor: '#2D7CFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  mapButtonIcon: {
+    marginRight: 5,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+
+  mapButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
   },
 
   search: {
